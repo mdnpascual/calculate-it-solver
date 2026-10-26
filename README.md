@@ -1,6 +1,9 @@
 # Calculator Puzzle Solver
 
-Solves the "broken calculator" puzzles in the game **Calculate It**: reach a goal number from a starting number with a limited, unusual set of buttons (prepend and append digits, `flip`, `÷`, `mod`, `+`, `-`, `×`, a `10` key, and so on), and with as few presses as possible.
+[![Solver](https://github.com/mdnpascual/calculate-it-solver/actions/workflows/solver.yml/badge.svg)](https://github.com/mdnpascual/calculate-it-solver/actions/workflows/solver.yml)
+[![Mod](https://github.com/mdnpascual/calculate-it-solver/actions/workflows/mod.yml/badge.svg)](https://github.com/mdnpascual/calculate-it-solver/actions/workflows/mod.yml)
+
+Solves the "broken calculator" puzzles in the game **Calculate It**: reach a goal number from a starting number with a limited, unusual set of buttons (prepend and append digits, `flip`, `÷`, `mod`, `+`, `-`, `×`, a `10` key, and so on), and with as few presses as possible. The solver also supports some boss requirements and passive skills, and it takes each key's status and charge count into account.
 
 The repo has two parts:
 

@@ -1,11 +1,16 @@
 <Project>
-  <!-- Game DLLs are referenced in place (never copied into the repo or the output). -->
+  <!--
+    GameRefs=Game  (default): the installed game's DLLs, referenced in place (never copied into the repo or the output).
+    GameRefs=Stubs (CI):      GameStubs/ (name-only Assembly-CSharp and UnityEngine.UI) + the UnityEngine.Modules package.
+                              No game file is used: dotnet build -c Release -p:GameRefs=Stubs
+  -->
   <PropertyGroup>
+    <GameRefs Condition="'$(GameRefs)' == ''">Game</GameRefs>
     <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\Calculate It</GameDir>
     <GameManaged>$(GameDir)\CalculateIt_Data\Managed</GameManaged>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(GameRefs)' == 'Game'">
     <Reference Include="Assembly-CSharp"><HintPath>$(GameManaged)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>$(GameManaged)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
@@ -14,5 +19,12 @@
     <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(GameManaged)\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(GameManaged)\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!-- Private="false" keeps the stub DLLs out of bin/, so nobody copies a fake Assembly-CSharp.dll into the game. -->
+  <ItemGroup Condition="'$(GameRefs)' == 'Stubs'">
+    <ProjectReference Include="..\GameStubs\GameStubs.csproj" Private="false" />
+    <ProjectReference Include="..\GameStubs\UI\GameStubs.UI.csproj" Private="false" />
+    <PackageReference Include="UnityEngine.Modules" Version="2022.3.32" PrivateAssets="all" ExcludeAssets="runtime" />
   </ItemGroup>
 </Project>

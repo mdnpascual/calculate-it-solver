@@ -1,6 +1,6 @@
 # Design: GitHub Actions
 
-**Status:** Not started (spec written 2026-10-26).
+**Status:** Implemented locally 2026-10-26: stubs, stub mode, drift check and workflows written; both mod builds pass, 790 tests pass, `tools/check-stubs.ps1` reports no differences. Open: first push (workflows green), Test Y in the game.
 
 ## Files
 

@@ -48,3 +48,17 @@ dotnet build GameHook.MelonLoader -c Release
 ```
 
 Copy `bin\Release\net472\CalcHook.MelonLoader.dll` directly into `<game>\Mods\` (not a subfolder). See [`../user-verification/install-and-remove.md`](../user-verification/install-and-remove.md) for installing MelonLoader, testing and removal.
+
+## CI build
+
+GitHub can't have the game's DLLs, so `.github/workflows/mod.yml` builds the mod in stub mode:
+
+```
+dotnet build GameHook.MelonLoader -c Release -p:GameRefs=Stubs
+```
+
+`GameRefs.props` then references `GameStubs/` (name-only `Assembly-CSharp` and `UnityEngine.UI`) and the `UnityEngine.Modules` 2022.3.32 NuGet package (BepInEx feed, set in `nuget.config`) instead of the game's `Managed` folder. No game file is used, and the stub DLLs are not copied to `bin/`. The default (`GameRefs=Game`) is unchanged.
+
+When the mod uses a new game member, the stub build fails with `CS1061` or `CS0103`. Add the member to `GameStubs/Game.cs` with the same kind, type, `static` and declaring type as the game, then run `tools/check-stubs.ps1` (needs the game). After a game update, run that script too. Details: [`../GameStubs/README.md`](../GameStubs/README.md).
+
+A CI-built DLL is loaded in the game once with [Test Y](../user-verification/test-y.md) before a release trusts it.

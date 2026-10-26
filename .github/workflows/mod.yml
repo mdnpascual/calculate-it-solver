@@ -1,0 +1,39 @@
+name: Mod
+
+# Builds GameHook.MelonLoader against the name-only stubs in GameStubs/ and the UnityEngine.Modules package.
+# No game file is used. A build that passes here still needs Test Y in the game (user-verification/test-y.md).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'GameHook.MelonLoader/**'
+      - 'GameStubs/**'
+      - 'nuget.config'
+      - '.github/workflows/mod.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'GameHook.MelonLoader/**'
+      - 'GameStubs/**'
+      - 'nuget.config'
+      - '.github/workflows/mod.yml'
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Build the mod against the stubs
+        run: dotnet build GameHook.MelonLoader -c Release -p:GameRefs=Stubs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CalcHook-mod
+          path: GameHook.MelonLoader/bin/Release/net472/CalcHook.MelonLoader.dll
+          if-no-files-found: error

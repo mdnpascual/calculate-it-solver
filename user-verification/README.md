@@ -27,6 +27,7 @@ One file per manual in-game test. Read only the file you need. Install and remov
 | V | [near, median, sup, money, ==, mw, AX](test-v.md) (done) |
 | W | [operator_swap](test-w.md) (done) |
 | X | [Button labels](test-x.md) (done) |
+| Y | [CI-built mod (stub build)](test-y.md) |
 
 ## Adding a test
 

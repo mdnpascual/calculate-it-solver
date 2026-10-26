@@ -1,0 +1,48 @@
+name: Release
+
+# On a pushed tag v*: run the solver and mod workflows, then attach the app zip and the mod DLL to a DRAFT release.
+# Check the draft, then publish it by hand.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  solver:
+    uses: ./.github/workflows/solver.yml
+
+  mod:
+    uses: ./.github/workflows/mod.yml
+
+  release:
+    needs: [solver, mod]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Publish the app (framework-dependent)
+        run: dotnet publish CalculatorPuzzle -c Release -r win-x64 --self-contained false -o publish
+      - name: Zip the app
+        run: Compress-Archive -Path publish\* -DestinationPath "CalculatorPuzzle-${{ github.ref_name }}-win-x64.zip"
+      - uses: actions/download-artifact@v4
+        with:
+          name: CalcHook-mod
+          path: mod
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          @"
+          **App:** ``CalculatorPuzzle-$env:TAG-win-x64.zip`` needs the .NET 9 Desktop Runtime (x64).
+
+          **Mod:** ``CalcHook.MelonLoader.dll`` is a CI build made against name-only stubs, not the game's own DLLs. It has not been loaded in the game yet (Test Y in ``user-verification/test-y.md``). To be safe, build it locally instead: ``dotnet build GameHook.MelonLoader -c Release``.
+          "@ | Set-Content -Path notes.md -Encoding utf8
+          gh release create $env:TAG --draft --generate-notes --notes-file notes.md `
+            "CalculatorPuzzle-$env:TAG-win-x64.zip" "mod\CalcHook.MelonLoader.dll"

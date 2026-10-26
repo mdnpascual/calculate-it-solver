@@ -1,6 +1,6 @@
 # GitHub Actions: build the solver and the mod
 
-**Status:** Not started (spec written 2026-10-26).
+**Status:** Implemented locally 2026-10-26: stubs, stub mode, drift check and workflows written; both mod builds pass, 790 tests pass, `tools/check-stubs.ps1` reports no differences. Open: first push (workflows green), Test Y in the game.
 
 ## Why
 
@@ -57,3 +57,9 @@ So yes, the mod can be built on GitHub, but only against stand-in references. Op
 - Self-contained or single-file app builds, installers, code signing.
 - Publishing to Thunderstore or Nexus.
 - Building or testing the mod against the real game on CI.
+
+## Findings (2026-10-26)
+
+- `UnityEngine.Modules` 2022.3.32 on the BepInEx feed has `lib/net35`, `net45` and `netstandard2.0`; the `net45` set works for `net472`. It has all the modules the mod uses (`CoreModule`, `IMGUIModule`, `InputLegacyModule`, `TextRenderingModule`, `UIModule`, `UnityEngine.dll`) but **not `UnityEngine.UI`**, so requirement 5 applies: `GameStubs/UI/` stubs `Text`.
+- The mod also uses `RunSave.Restoring` (found by compiling against the stubs), which this spec's list didn't name.
+- Not checked until the first push: `windows-latest` timing of the full test run, and the workflows themselves (`actionlint` isn't installed here; the YAML parses).

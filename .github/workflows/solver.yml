@@ -1,0 +1,39 @@
+name: Solver
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'spec/**'
+      - 'user-verification/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'spec/**'
+      - 'user-verification/**'
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    # The app and the tests target net9.0-windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - run: dotnet restore CalculatorPuzzle.sln
+      - run: dotnet build CalculatorPuzzle.sln -c Release --no-restore
+      - run: dotnet test CalculatorPuzzle.sln -c Release --no-build --logger trx --results-directory TestResults
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults
