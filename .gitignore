@@ -1,0 +1,47 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Rr]elease/
+[Dd]ebug/
+[Ll]og/
+*.binlog
+
+# Test results and coverage
+TestResults/
+coverage*.json
+coverage*.xml
+*.coverage
+*.coveragexml
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.rsuser
+.vscode/
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+
+# Claude Code: personal settings stay local (shared settings.json and skills are kept)
+.claude/settings.local.json
+
+# Game files must never be committed (the mod references them in place; see GameRefs.props).
+# The game-stubs project builds its own Assembly-CSharp.dll under bin/, which is already ignored.
+Assembly-CSharp*.dll
+UnityEngine*.dll
+MelonLoader*.dll
+0Harmony.dll
+
+# Local game data the mod writes (normally in %LOCALAPPDATA%\CalcHook, kept out in case of copies)
+puzzle.json
+state.json
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

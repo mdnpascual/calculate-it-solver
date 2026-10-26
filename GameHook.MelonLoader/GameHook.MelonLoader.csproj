@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>CalcHook.MelonLoader</AssemblyName>
+    <RootNamespace>CalcHook</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compile-time references only; MelonLoader 0.7.3 ships its own copies (incl. 0Harmony) at runtime. -->
+    <PackageReference Include="LavaGang.MelonLoader" Version="0.7.3" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <Import Project="GameRefs.props" />
+
+</Project>

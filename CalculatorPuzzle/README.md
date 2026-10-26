@@ -1,0 +1,143 @@
+# CalculatorPuzzle (solver)
+
+A WinForms app (.NET 9) that finds short press sequences for Calculate It's Engineering Calculator puzzles. Enter a start `S`, a goal `G` and the buttons with their charges (for example `X1:2, 8X:1, ÷:3, 10:5`), press Enter, and the box lists the 10 cheapest lines found.
+
+## The calculator model
+
+- **Left side**: the display before an operator (the start number, or a result after `=`). Only `dX` (prepend digit), `Xd` (append digit), `flip` (reverse digits) and `reset` edit it.
+- **Right side**: the operand after an operator. Only digit keys (`10`, and later `0`–`9`) build it.
+- One operation per `=`. `=` is free. Division drops the fraction, `-` below 0 gives 0. `+`, `×`, `X+k`, `X++`, `X*2`, `<<` and `sqr` clamp results above 999 999 to 999 999 and play goes on (`p`, `round` and `%` don't clamp). `dX` / `Xd` do nothing on a display of 6 characters (leading zeros count), and an operand key appends only while the operand has fewer than 5 characters, so `10 10 10` (`101010`) is the longest `10` operand. The simulator rejects a line that breaks either rule ([`spec/display-cap/`](../spec/display-cap/)).
+
+Every candidate line is replayed press by press in a simulator (`EngineeringCalculator.Run`) before it is shown, and checked against the button charges (`Buttons.Fits`). A line that would press a button more times than it has charges is rejected and counted in the status line.
+
+The left-side edits between steps come from `LeftEdits`, a breadth-first search for the fewest `dX` / `Xd` / `flip` presses that turn one digit string into another.
+
+## The tricks
+
+The solver doesn't search blindly over every press. It builds lines from four known shapes, each with a closed-form rule (or a meet-in-the-middle lookup), and checks each one in the simulator. (The code names are in brackets.)
+
+### 1. Single-step arithmetic (`ArithmeticSearch`, "traditional operators")
+
+Edit `S` into some `X`, apply one of `+`, `-`, `×` with an operand `D`, then edit the result `Y` into `G`:
+
+```
+S --edits--> X   op D   =   Y --edits--> G
+```
+
+`D` is not searched; it is fixed by `X` and `Y`: `D = Y − X` for `+`, `X − Y` for `-`, `Y ÷ X` for `×` (only when it divides exactly). `Y` ranges over strings that left edits can turn into `G`. The same pass also finds **edits-only** lines, where `S` becomes `G` with left edits alone (for example `36 → 63` is just `flip`).
+
+Example: `41 → 48` with digit keys is `+ 7 =`.
+
+### 2. Truncating division (`DivisionShortcut`, "division shortcut")
+
+Whole-number division throws away low digits, so it can cut a chosen run of digits out of a number. Split the goal's digits as `P ‖ q ‖ B`. Build `X = A ‖ core ‖ T` from `S` by prepending `A` and appending `T` (the core is `S`, or `S` flipped), divide by `D` so that `floor(X / D) = q`, then edit `q` back into `G`:
+
+```
+floor(X / D) = q   exactly when   q·D ≤ X ≤ q·D + D − 1
+A ∈ [ ceil((q·D − L) / 10^m),  floor((q·D + D − 1 − L) / 10^m) ]
+```
+
+where `L` is the value of `core ‖ T` and `m` is its digit count. So the prefix `A` comes straight from the formula instead of a search.
+
+- **Path A (early game, only `10`)**: `D` is `10`, `1010`, `101010`, … (the `10` key pressed `r` times).
+- **Path B (digit keys)**: pick `X` first. Any `D` in `[floor(X / (q+1)) + 1, floor(X / q)]` works, and `CheapestDivisor` finds the one that takes the fewest presses to type.
+
+Examples for `41 → 48`:
+
+- `÷ 10 =` gives `4`, then `X8` gives `48` (3 presses). Dividing by 10 drops the last digit.
+- With `flip` and no `X8`: `8X` → `841`, `÷ 10 =` → `84`, `flip` → `48` (4 presses).
+
+### 3. Remainder construction (`ModuloShortcut` + `ModuloSearch`, "modulo shortcut")
+
+Pick a modulus just above a power of ten and prepend digits to `S` so that the remainder lands exactly on `G`. With `k` at least the digit count of `S` (extra places come from prepending zeros, which the display keeps), and a lift `L = A` when `S < G`, or `A − 1` when `S > G`:
+
+```
+d = L·10^k + S − G      (must be positive)
+d = M · N               (any factor pair)
+(prepend (M + L) to S)  mod  (10^k + N)  =  G
+```
+
+Why: prepending `M + L` gives `X = (M + L)·10^k + S`, and `X − M·(10^k + N) = L·10^k + S − d = G`. So `G` is the remainder whenever `G < 10^k + N`. Each factor pair gives two lines (swap `M` and `N`). The search covers `A = 1..99`, every `k` that can still fit the cost cap, and every factor pair, and keeps up to 100 lines.
+
+Example: `41 → 48`, `A = 1`, `k = 2`: `d = 100 + 41 − 48 = 93 = 31 · 3`, so prepend `32` and mod `103`: `2X 3X mod 10 3 =` gives `3241 mod 103 = 48`.
+
+### 4. Two operators (`TwoOperatorSearch`)
+
+For puzzles where one operator can't do it (boss rule 11 requiring `+` on 59 → 40 with no `dX` / `Xd`: `- 2 0 = + 1 =`):
+
+```
+S --edits--> X1   op1 D1 =   M   op2 D2 =   Y2 --edits--> G
+```
+
+Meet in the middle on `M`, the value after the first `=`. The forward half tries every `X1` (the same `xs` as the arithmetic phase), every operator and every operand of up to 3 operand keys, and keeps the cheapest route to each `M` (at most 200 000 values). The backward half takes every `Y2` (the same `ys`), every `op2` and `D2` and asks which `M` give `Y2`: a point for `+`, `-`, `×`; a range for `÷`, `%`, `b->c`; a progression for `mod`; the last digit for `a->c`. Matches are joined cost level by cost level and checked in the simulator. Operands that change nothing (`+ 0`, `- 0`, `× 1`, `÷ 1`) and segments that leave the value unchanged are skipped. With a required operator (boss rule 11) only pairs that contain it are built. Segments type their operand directly (no division-shortcut formula), and there are no edits between the two segments.
+
+Example: `59 → 40`: `- 2 0 =` gives 39, `+ 1 =` gives 40.
+
+## Search order and truncation
+
+The phases run in order, and each one caps the next, so the slow phases never chase lines that can't make the list:
+
+1. **Arithmetic** runs first, up to 12 presses.
+2. **Two operators** run next, capped at the cheapest arithmetic line + 2 presses (or 12 if there is none). In boss rule 11 they run for every required operator.
+3. **Division** runs next, capped at the cheapest arithmetic or two-operator line + 2 presses (or 12 if there is none).
+4. **Modulo** runs last, once division finishes on its own, capped at the cheapest line so far + 2. It also runs when division can't (no `÷`).
+
+In boss rule 12 (every `=` adds 1) all four phases take `plusOne`: edits aim at G − 1, each mid-line `=` result is 1 higher, an operation followed by edits aims 1 lower, and every kept line passes `EngineeringCalculator.Sent(...) == G`. S = G − 1 gives the 0-press line `=`.
+
+In boss rule 13 (an `=` that misses re-rolls the goal) `RequiredPlan.OneSend()` adds `EngineeringCalculator.OneSend` (no `=` before the last press) to `Accept` and turns the two-operator phase off. The phases are unchanged.
+
+With **Near 1** (the `passive_near1` passive: a send within 1 of the goal wins; `puzzle.json` `near1`, or tick the box by hand) every phase runs for G, G − 1 and G + 1 (`NearGoals.Targets`; below 0, or below 1 in rule 12, dropped). The loops are phase-major, so the arithmetic lines of all targets set the cap for two-operator, division and modulo (one shared cap). Lines go into one list under the same ranking; a line ending at G ± 1 shows `goal N`. S = G ± 1 gives the 0-press line `=` (`ArithmeticSearch.Find(..., bareSend: true)`). In rule 14 the targets are G + k − 1, G + k, G + k + 1. The done status gets the prefix `Near 1: goal ± 1:`. Timing, `41 → 483` with every button, Release: 0.4 s without Near 1, 0.65 s with it.
+
+With **swap** (the game's `operator_swap`: the display and the goal trade places, then the game sends; left side only) and a charge for it, every phase runs twice, once per leg (`SwapSearch.Legs`): the direct leg S → G, and the flipped leg F → S, where F is G (plus 1 in rule 12, plus 1 in rule 14 unless `swap` is glass). A flipped line is `swap` plus a line for F → S: cost + 1, shown with `goal S`, at most one `swap` and only as the first press. The legs loop inside each phase, so one shared cap counts both (the flipped leg searches one press lower). No flipped leg in rule 13 (the swap's send misses and re-rolls the goal); boss rule 11 requiring `swap` skips the direct leg; if F = S the 1-press line `swap` wins. The status adds `M swap line(s)`. Timing, `41 → 483` with every button, Release: 0.74 s without `swap`, 0.92 s with `swap:1`. Swap in the middle of a line is not searched.
+
+Lines stream into the box as they are found and stay sorted. The ranking is: fewest presses, then fewest buttons drained to 0 charges, then the most spare charges left, then arithmetic before two-operator before division before modulo. Esc stops a search; Enter restarts it.
+
+### Achievement modes
+
+With a radio button in the Achievements section on, `MainForm` skips the phases above and runs one background task (boss rules 11–14 and Required are ignored, with a status note):
+
+- **School mathematics** (`SchoolSearch`): best-first search for lines that apply `+ - × ÷` each with an `=`, up to 12 operator segments, 30 presses.
+- **Just a one** (`JustOneSearch`): arithmetic, division, modulo and a plain `edits mod D =` phase for goal S + 1, keeping lines whose only `=` is the last press. The credit isn't printed. `Order` puts the cheapest line of each credit first.
+
+## Threads
+
+The division search is the heavy phase, so it runs on a pool of dedicated worker threads (`WorkerPool`), not the .NET thread pool. It uses **half the logical processors** (rounded down, at least 1), and pins each worker to one of the **last N/2** of them. On a 16-thread CPU, the 8 workers run on processors 8–15. That leaves the first half free for the game, the UI and the rest of the machine:
+
+- Intel hybrid CPUs number the P-cores first, so the search lands on the E-cores.
+- AMD dual-CCD X3D CPUs (such as the 9950X3D) put the 3D V-Cache CCD first, so the search lands on the other CCD and the game keeps the cache.
+
+Workers take the next work item from a shared counter, and results are the same as a single-threaded run. Measured on a 9950X3D, `41 → 483` in Release takes about 8.3 s on one thread and 5.1 s in parallel.
+
+## Following the game
+
+With **Follow game** checked (the default), the app watches `%LOCALAPPDATA%\CalcHook\puzzle.json` with a `FileSystemWatcher` (no polling). When the file changes, it waits 100 ms for writes to settle, reads the puzzle (`GameLink.Parse`), maps the game's button ids to solver tokens (`GameLink.MapButton`), fills in S, G and the buttons with charges, and starts the search. Each puzzle is solved once; pressing buttons or buying from the shop doesn't start another search. Check **Lock** to ignore the file; uncheck it to read it again.
+
+The file is written by the game mod in [`../GameHook.MelonLoader`](../GameHook.MelonLoader/README.md). Without the mod, type the puzzle in by hand.
+
+## Files
+
+Per-file notes, for working on the code. Inputs in the UI are S, G, Required, Last and Buttons; the Lines box holds arithmetic, Division Shortcut and Modulo Shortcut lines together. (The old manual A, k, factor-pair and Solution rows were removed.)
+
+- `Program.cs`: entry point.
+- `ButtonLabels.cs`: the in-game button labels ([`spec/button-labels/`](../spec/button-labels/requirements.md)). `Label(token)` (`c12` → `volt12`, `flip` → `reverse`, `sqr` → `X²`, …), `Token(text)` (label or token → token, case-insensitive; `mem` → `m`) and `Line(presses)` (joins with ` | `). A display layer: tokens stay internal. Used by `Buttons.Parse` / `Buttons.Token` (both forms accepted), `ResultLine.ToString`, `GameLink` (`ButtonsText`) and the `MainForm` status notes and Required box. `GameHook.MelonLoader/ButtonSymbols.cs` has a copy of `Label`.
+- `MainForm.cs`: UI, built in code (no designer file). Has a Game row (Follow game, Lock, Near 1; Follow game sets Near 1 from `puzzle.json`, and in rule 14 a same-round file is applied when `near1` changed), a Required textbox and a Last textbox (above Buttons; Follow game fills Last from `puzzle.json`), a Buttons textbox, a status label and a box with the cheapest 10 lines (each row shows only the presses and the count). The Buttons box accepts single digit keys `0`–`9`. The search runs in the background when Enter is pressed in the S, G, Required or Buttons box: Two-operator and Division Shortcut lines stream in (the status shows `T two-operator line(s)`), then, once division finishes on its own, the Modulo Shortcut phase adds its lines (Esc stops either phase, a new Enter restarts). An Achievements header (`▸ Achievements`, collapsed) shows two radio buttons with `AutoCheck` off (a click on the active one turns it off); a click restarts the search, and `achievementTask` is cancelled like `stepTask`. A `Follow game` checkbox (on by default) watches `puzzle.json` with a `FileSystemWatcher` (events restart a 100 ms one-shot timer; no polling), fills in S, G, Required, Buttons (with charges) and then starts the Division Shortcut. A `Lock` checkbox ignores the file while checked and re-reads it when unchecked. Required (Market Demand) names a button: lines that press it rank first and alone set the division and modulo caps, the others show `no <token>`, and the done status adds `K use <token>`; an unknown or absent button gives a status note and a normal search. With no game feed, no search runs at startup. `ApplyGamePuzzle` keeps `gameBlocked`; the status gets `blocked: X8, ÷` for those tokens still at 0 charges in the Buttons box (boss rules 2 and 9 are no longer "not supported"). A warp (`puzzle.Warp > 0`, from the warp button's re-roll) adds `warp n` to the status notes, and in boss rule 14 a same-round file is applied when `appliedStepWarp` differs. Boss 6 applies `Buttons.TakeTwo()` right after parsing, before the Required check. A Money box next to Last (Follow game fills it from `coins`); `Buttons.Parse` gets G and the money, and every search runs with a `LineContext` (`gameDiffType`, `gameCoinPassives` from the last applied puzzle, boss 10 from the Boss box). `StartDivisionSearch` builds `searchLegs` (`SwapSearch.Legs`); each phase, the modulo task and the rule 14 `stepTask` loop over them (flipped lines wrapped, `swap line(s)` in the status). Captions are `Start (S)` and `Goal (G)`; the Lines box is anchored left and right with both scrollbars, so it takes the width of the widest other row. An empty or bad Boss, Last or Money box means 0, with no message. The status has no rule prefixes, one `No line fits the available buttons` message (`NoLineStatus`), and shows no search errors except an exception's message; the notes `money $M`, `money needs a Money value`, `mw empty` and `no Last value` are gone.
+- `EngineeringCalculator.cs`: `Max` (999 999, the clamp), `MaxDisplay` (6) and `MaxOperandTyping` (5) hold the number rules; `Apply` clamps `+` and `×`; `Run` rejects `Xd` / `dX` on 6 characters and an operand key on 5. `Key` (including `Mod`, `Add`, `Subtract`, `Multiply`, `Swap`), `Press`, `Buttons` (with `Buttons.Parse` for the UI's comma-separated list, `Spare` and `Drained`) and the press simulator `Run` / `Cost` (`÷` and `mod`). Every Division Shortcut line is checked with it. `10` and digit keys are valid on the right side only. `Buttons` also holds charges: `Buttons.Parse` requires `X1:2` on every button except `=` (`:0` leaves the button out; `:1g` marks a glass button, any count clamped to 1, kept in `Buttons.Glass`), `Fits` checks a press list against them. `Prepend` / `Flip` hold the leading-zero rule. `Run(..., plusOne)` is boss rule 12 (`SendPlusOneRule`): each `=` adds 1, and a bare `=` is allowed as the last press only; `Sent` is the number a line sends (last display, +1 when the line doesn't end with `=`). Boss rule 6 (`TakeTwoRule`): `Buttons.TakeTwo()` turns charges into presses (ceil(n / 2), glass unchanged) and sets `ChargeStep` 2; `Buttons.ChargeValue(used)` is the charge key's value on its next press (`c12 c10 …`), used by `Run`, `TypeOperand` and the two-operator search. New keys: `AllDigits` (`==`), `Complement` (`AX`), `Memory` (`mD`, an operand key; `Buttons.MemoryValue`, charge key `m`). `Buttons.Parse(text, last, goal, money)`: `near` and `median` need the goal, `money` the amount (`GoalIgnored` / `MoneyIgnored` otherwise). `Buttons.Context` (`LineContext`: goal, rule-14 flag, money, `MoneyRules`) is what `Run` reads: it counts charged presses (`SubUse` runs before the effect), rebinds `near` / `median` to the goal at that press (goal + charged non-glass presses in rule 14) and `money` to the money then, drains money (difficulty 7+ from the 3rd press, boss rule 10) and adds the coin passives after each `=`. `Without(token)` copies with one button's charges at 0 (the flipped swap leg). `Run` returns null for a `swap` press (it doesn't know the goal; `SwapSearch.Check` runs those lines). `WithGoal(goal)` rebinds `near` / `median` (used per k by `GoalStepSearch`); `WithContext` copies with a context.
+- `LeftTransforms.cs`: the transform catalogue (`X+k`, `X++`, `X*2`, `<<`, `sqr` clamp to `Max`; `p`, `round` don't; preimages of clamped transforms stop at `Max`, the others at 10^8) (`LeftTransform`: token, `Apply`, `Preimages`; `LeftTransforms.Parse`). Buttons as data: the simulator and the search never switch on the token. `Buttons.Transforms` holds the ones a puzzle has; `Key.Transform` / `Press.Of` press them. `near`, `median` and `money` are built from a value (`Near(goal)`, `Median(goal)`, `Money(m)`; `Reads` and `Bind` let the simulator rebind them), `sup` is in the catalogue; `sup` and `money` check the display length first and give no result on a long display. `sup` preimages are lazy (every number up to 99 999 with that digit sum).
+- `Primes.cs`: deterministic Miller–Rabin and nearest prime (ties go down), for the `p` transform.
+- `LeftSearch.cs`: (`Actions` is `internal`; `SchoolSearch` uses its forward moves) BFS over left-side displays with every left-side button (`Forward`, `Backward`, `Connect`, `DefaultLimits`: 100 000 states, at most 8 characters, `Xd` / `dX` moves only below 6, charges respected; `dX` and `flip` follow the game's number rule, the backward moves list plain numbers only, and `Join` also matches a leading-zero display by value). The arithmetic phase uses it only when the puzzle has transforms.
+- `LeftEdits.cs`: breadth-first search for the fewest left-side presses that turn one digit string into another. It uses only `dX`, `Xd` and `flip`; a piece of 6 characters can't grow.
+- `TwoOperatorSearch.cs`: (`Operands(buttons, maxPresses)` is `internal`; `SchoolSearch` uses it with 2) two-operator lines (`Find`, `Line`): meet in the middle on the value after the first `=` (see "The tricks" section 4). Reuses `ArithmeticSearch.BuildXs` / `BuildYs` for the edits around the two segments and `EngineeringCalculator.Apply` for the operator arithmetic. Operands of up to 3 keys (and the 5-character typing rule), 200 000 middle values, 100 lines; `requiredOp` limits pairs to those containing that operator; `onRejected` counts lines that fail the charges. `plusOne` (rule 12): M is the first result + 1, op2 aims at Y2 − 1 when edits follow its `=`. `==` and `AX` are operators that take one key and no `=` (like `a->c`): `OneKey` for the forward half, ranges (`==`) and a point (`AX`) for the backward half; the operand list includes the mw key.
+- `NearGoals.cs`: `Targets(goal, near1, plusOne)`, the goals a line may end at (G, G − 1, G + 1), and the passive's object name.
+- `ArithmeticSearch.cs`: one-operator lines with `+`, `-`, `×` (edit S into X, operator, D = Y − X / X − Y / Y ÷ X, `=`, edit Y into G) and edits-only lines (such as `flip` for 36 → 63). Runs first, then the two-operator phase, the Division Shortcut and Modulo Shortcut. `BuildXs` / `BuildYs` build the X and Y displays and are shared with `TwoOperatorSearch`. `DivisionShortcut` exposes `Cores`, `Pieces`, `Suffixes`, `Prefixes` for it. `bareSend` (Near 1): with S == goal, the single bare `=` line. `plusOne` (rule 12): `g` is G − 1, the bare `=` line when S = G − 1, and an operation followed by edits aims 1 lower. `RemorphKeys` includes the mw key; the remorph block also handles `==` and `AX` (`AX` only on a display under 6 characters with a result of at most 6).
+- `DivisionShortcut.cs`: the Division Shortcut (`Search` reports lines through a callback and can be cancelled, and sends lines that don't fit the charges to `onRejected`; `Solve` collects and sorts them by `Ranking`): edit S into X, divide by D, edit the quotient into G. Path A: D is `10` repeated r times, r ≤ 3 (A from the formula). Path B (only with digit keys): pick X first, then `CheapestDivisor` finds the cheapest typeable D with floor(X / D) = q (`TypeOperand` gives the presses to type a number, following the 5-character operand rule). Returns lines cheapest first. `plusOne` (rule 12): quotient pieces come from G − 1, divide for q − 1 when edits follow the `=`. `TypeOperand` and `CheapestDivisor` type with the mw key (its stored number, any number of times); path B also runs with only an mw key.
+- `ModuloShortcut.cs`: the "10d" Modulo Shortcut logic (no UI; used by `ModuloSearch`), for S < G and S > G (S = G is rejected). k ≥ digit count of S (extra places need zeros between the prepended digits and S; `0X` can't make them because `dX` drops leading zeros, so padding goes through `flip X0 … flip`: `31` → `flip X0 X4 flip` → `4031`). Lift L = A when S < G, A − 1 when S > G. d = L·10^k + S − G, d = M·N (every pair, flipped duplicates removed), answer = prepend (M + L) to S, mod (10^k + N). Swapping M and N gives the second line. Each line is checked; it only equals G when G < 10^k + N. Example for S > G at A = 1: 31 → 11, d = 20 = 4·5, `431 mod 105` and `531 mod 104`.
+- `ModuloSearch.cs`: `Presses` (left edits, `mod`, operand, `=` for one formula) and `Find` (A = 1..99, every k whose X fits in 6 characters, every factor pair and both formulas; keeps up to 100 lines with cost ≤ the cap, checked in the simulator and against charges; throws `OperationCanceledException` on cancel). `plusOne` (rule 12): solves for G − 1; the final `=` is the send.
+- `RequiredPlan.cs`: decides the filter and phases for a required button. In a boss round (rule 11) only lines that press it count, and an operator button runs only its phase plus the two-operator phase (`TwoOperator`, `RequiredOp`: pairs must contain that operator); Market Demand and no required button run everything.
+- `GoalStepSearch.cs`: boss rule 14 (the goal rises by 1 per charged press). For k = 1, 2, … it runs the phases (arithmetic, two-operator, division, modulo) for goal G + k and keeps only lines with exactly k charged presses (`Charged`: no `=`, no glass), until 10 lines or k = 12. `near1` loops the targets G + k − 1, G + k, G + k + 1 per k. Used by `MainForm` when the Boss box says 14. Each k searches with `buttons.WithGoal(goal + k)`; the simulator checks lines with the goal at each press.
+- `ResultLine.cs`: one Lines-box row for any of the five kinds (arithmetic, two-operator, division, modulo, School); `Credit` (Just a one) only groups the order, it isn't printed; `Drained` and `Spare`; `Ranking` = cost, drained (fewest), spare (highest), arithmetic before two-operator before division before modulo, then each kind's own order. `Reaches` (the goal a line ends at when it isn't G: rule 14, Near 1, or a swap line, which ends at S) shows as `goal N`; `Swapped` marks a flipped swap line. `ToString` prints `<presses joined by " | ">   (N press[, goal G], spare N[, empty N][, no X])` with labels (`ButtonLabels.Line`; `÷` as `/`, display only; charge keys stay `÷`).
+- `SwapSearch.cs`: `operator_swap`. `Leg` / `Legs` (direct and flipped solves), `FlippedStart` (F), `Flip` (the buttons without `swap`, rebound to goal S), `Check` (the simulator check for a line that starts with `swap`), `SwapAlone` (the 1-press line when F = S) and `Wrap` (puts `swap` in front of a flipped row: cost + 1, drained / spare / Missing on the whole line, `Reaches` = S; null when it doesn't fit the charges). The phases never generate `swap`.
+- `AchievementMode.cs`: `AchievementMode` (None, School, JustOne), `AchievementDone` (what the task returns to the form), `Achievements.FourOps` (a line applies `+ - × ÷` each with `=`), `Credit` (the `operators_used` entry the last `=` sets; ids in a comment), `OpBit`, `MaxSchoolOperators`.
+- `SchoolSearch.cs`: School mathematics. Dijkstra over (display, operators-used mask) with up to 4 labels per state (cost, segments, uses per button), left presses and `op operand =` segments (operands of up to 2 keys, no `c` / `q`), the last segment closed by formula (`BuildYs`, `TypeOperand`, `CheapestDivisor`), 300 000 states, cost slack 2 after the first line. Every line is replayed with `Sent`, `FourOps` and `Fits` (`onRejected` otherwise); a missing operator or no operand keys gives an `Error`. Throws `OperationCanceledException` on cancel.
+- `JustOneSearch.cs`: Just a one. `OneEqualsAtEnd` (the accept filter), `Search` (S + 1 through `ArithmeticSearch`, `DivisionShortcut`, `ModuloSearch` and `ModLines`, the plain `edits mod D =` phase), `Order` (cheapest of each credit first, then the rest by `ResultLine.Ranking`).
+- `GameLink.cs`: `GamePuzzle` (with `Required`, the Market Demand token or unmapped id, and `BossRule`; glass buttons are written `:1g`; `Blocked` lists tokens of blocked buttons, which are written `:0`), `GameLink.Parse` (reads `puzzle.json`, version 1; `Near1` is the `near1` flag, false when missing; `Warp` is the `warp` count, 0 when missing or invalid), `MapButton` (game id → solver token; `ButtonsText` is written with labels, `volt12:12`) and `DefaultPath`. `MapButton` knows `swap`, `near`, `median`, `sup`, `money`, `==`, `AX` and `number_mw` (`m`; written `m<stored>:n`, an empty mw is ignored as `mw`). `GamePuzzle` has `Coins`, `DiffType`, `CoinPassives` and `MoneyRules`.
+- `WorkerPool.cs`: dedicated worker threads, each pinned (best effort) to one of the last N logical processors.
