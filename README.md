@@ -20,6 +20,32 @@ I built this project with two goals:
 
 2. **Steer Claude Code with spec-driven development and many tests.** Every feature started as a spec in [`spec/`](spec/): requirements first, then a design, then a self-contained prompt for the next session. Claude worked from these files instead of from memory, so each session followed the same rules and code patterns.
 
+## Features
+
+### Boss rush
+
+// TODO: Add video here of the boss-rush montage
+
+The solver handles many boss requirements, such as a required button, double charge cost, blocked buttons and a goal that rises with each press.
+
+### Crazy calculator
+
+// TODO: Add video here of the crazy calculator with warp
+
+The solver adapts to any button set: after each warp re-rolls the buttons, it finds a new line right away.
+
+### Restoring hidden UI with the overlay
+
+// TODO: Add video here of the overlay restoring hidden button labels and the broken screen
+
+When a boss hides button labels (rule 5) or breaks the screen (rule 8), the mod's overlay brings back what the game hides, and the solver still gives a line.
+
+### Redacted Challenge
+
+// TODO: Add video here of the Redacted Challenge with the shop open
+
+In the Redacted Challenge every label is hidden, and the overlay shows both the calculator and the shop offers, with prices, glass and charge totals.
+
 ## Requirements
 
 - Windows 10 or 11
