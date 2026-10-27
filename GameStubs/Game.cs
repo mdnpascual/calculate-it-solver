@@ -18,6 +18,7 @@ public class StartLvl : MonoBehaviour
     public GameObject calc_transform;
     public GameObject must_butt;
     public GameObject box;
+    public GameObject passiveshop;
     public GameObject[] shops;
     public GameObject[] items;
     public Text need;
@@ -87,9 +88,26 @@ public class CalcSize : MonoBehaviour
 public static class GamePrefs
 {
     public static int GetInt(string key, int defaultValue = 0) { throw null; }
+    public static string GetString(string key, string defaultValue = "") { throw null; }
 }
 
 public class RunSave : MonoBehaviour
 {
     public static bool Restoring { get { throw null; } set { throw null; } }
+}
+
+public class PassivePool : MonoBehaviour
+{
+    public RandomisatorPassives[] passives;
+}
+
+public class RandomisatorPassives : MonoBehaviour
+{
+    public int id;
+}
+
+public class TextsLoader : MonoBehaviour
+{
+    public TextAsset textAsset_p;
+    public TextAsset textAsset_eng_p;
 }

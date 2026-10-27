@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <Compile Include="..\GameHook.MelonLoader\ButtonSymbols.cs" Link="Linked\ButtonSymbols.cs" />
+    <Compile Include="..\GameHook.MelonLoader\PassiveTexts.cs" Link="Linked\PassiveTexts.cs" />
   </ItemGroup>
 
 </Project>

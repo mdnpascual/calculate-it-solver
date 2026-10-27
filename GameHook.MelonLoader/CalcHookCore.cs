@@ -315,11 +315,15 @@ namespace CalcHook
                 sb.Append(']');
             }
 
+            var passives = new List<PassiveOffer>();
+            Safe("Passives", () => passives = ReadPassivePicker());
+            if (passives.Count > 0) sb.Append(" passives=[").Append(PassiveNames(passives)).Append(']');
+
             string line = sb.ToString();
             if (line == _lastLine) return;
             _lastLine = line;
             _info(Tag + " " + line);
-            WriteJson(source, goal, left, buttons, required, kind, shop);
+            WriteJson(source, goal, left, buttons, required, kind, shop, passives);
         }
 
         struct ButtonInfo
@@ -457,7 +461,7 @@ namespace CalcHook
 
         static string TextOf(UnityEngine.UI.Text t) => t == null ? "" : t.text;
 
-        void WriteJson(string source, int goal, long left, List<ButtonInfo> buttons, string required, string kind, List<ShopSlot> shop)
+        void WriteJson(string source, int goal, long left, List<ButtonInfo> buttons, string required, string kind, List<ShopSlot> shop, List<PassiveOffer> passives)
         {
             try
             {
@@ -527,7 +531,23 @@ namespace CalcHook
                           .Append(", \"x\": ").Append(sl.X.ToString("0.0", CultureInfo.InvariantCulture))
                           .Append(", \"y\": ").Append(sl.Y.ToString("0.0", CultureInfo.InvariantCulture)).Append(" }");
                     }
-                    sb.Append(shop.Count > 0 ? "\n    ]\n  }\n" : "]\n  }\n");
+                    sb.Append(shop.Count > 0 ? "\n    ]\n  }" : "]\n  }");
+                }
+                sb.Append(",\n  \"passivePicker\": ");
+                if (passives.Count == 0) sb.Append("null\n");
+                else
+                {
+                    sb.Append("{\n    \"open\": true,\n    \"offers\": [");
+                    for (int i = 0; i < passives.Count; i++)
+                    {
+                        var o = passives[i];
+                        sb.Append(i == 0 ? "\n" : ",\n");
+                        sb.Append("      { \"id\": ").Append(o.Id)
+                          .Append(", \"name\": ").Append(Str(o.Name))
+                          .Append(", \"description\": ").Append(Str(o.Description))
+                          .Append(", \"x\": ").Append(o.X.ToString("0.0", CultureInfo.InvariantCulture)).Append(" }");
+                    }
+                    sb.Append("\n    ]\n  }\n");
                 }
                 sb.Append("}\n");
 
@@ -565,15 +585,17 @@ namespace CalcHook
                 _lastChallenge = challenge;
                 if (challenge == Redacted) _overlayOn = true;
             }
-            if (!_overlayOn || Time.unscaledTime < _nextOverlayRead) return;
+            if (!_overlayOn) { _passiveOffers.Clear(); return; }
+            if (Time.unscaledTime < _nextOverlayRead) return;
             _nextOverlayRead = Time.unscaledTime + OverlayRefresh;
-            if (_level == null || _calc == null) { _overlayButtons.Clear(); _shopSlots.Clear(); return; }
+            if (_level == null || _calc == null) { _overlayButtons.Clear(); _shopSlots.Clear(); _passiveOffers.Clear(); return; }
             _overlayButtons = ReadButtons();
             Safe("Shop", () =>
             {
                 _shopSlots = ShopOpen() ? ReadShop(_overlayButtons) : new List<ShopSlot>();
                 _shopCoins = _level.coins;
             });
+            Safe("Passives", () => _passiveOffers = ReadPassivePicker());
             _overlayLeft = _calc.total;
             _overlayHeader = _overlayLeft + " → " + _level.number;
             _overlayWidth = CalcWidth();
@@ -686,7 +708,7 @@ namespace CalcHook
             return _calcSize != null ? _calcSize.size_x : 0;
         }
 
-        GUIStyle _boxStyle, _symbolStyle, _usesStyle, _headerStyle, _hintStyle, _ownedStyle;
+        GUIStyle _boxStyle, _symbolStyle, _usesStyle, _headerStyle, _hintStyle, _ownedStyle, _passiveTitleStyle, _passiveTextStyle;
         Texture2D _white;
 
         void BuildStyles()
@@ -712,6 +734,10 @@ namespace CalcHook
             _headerStyle.normal.textColor = Color.white;
             _hintStyle = new GUIStyle(_headerStyle) { alignment = TextAnchor.MiddleRight, fontSize = 11, fontStyle = FontStyle.Normal };
             _hintStyle.normal.textColor = new Color(1f, 1f, 1f, 0.7f);
+            _passiveTitleStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperLeft, fontSize = PassiveTitleSize, fontStyle = FontStyle.Bold, wordWrap = true };
+            _passiveTitleStyle.normal.textColor = Color.white;
+            _passiveTextStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperLeft, fontSize = PassiveTextSize, wordWrap = true };
+            _passiveTextStyle.normal.textColor = new Color(0.85f, 0.85f, 0.85f, 1f);
         }
 
         string SymbolOf(string id)
@@ -754,7 +780,7 @@ namespace CalcHook
             if (Event.current == null || Event.current.type != EventType.Repaint) return;
             if (!_overlayOn) return;
             bool shop = _shopSlots.Count > 0;
-            if (_overlayButtons.Count == 0 && !shop) return;
+            if (_overlayButtons.Count == 0 && !shop && _passiveOffers.Count == 0) return;
             if (_boxStyle == null) BuildStyles();
 
             var oldMatrix = GUI.matrix;
@@ -777,6 +803,7 @@ namespace CalcHook
                     GUI.matrix = Matrix4x4.Scale(new Vector3(s, s, 1f));
                     DrawShop(calcPanel);
                 }
+                DrawPassives();
             }
             finally
             {
@@ -941,6 +968,126 @@ namespace CalcHook
                 }
             }
             return sb.Append('"').ToString();
+        }
+
+        // ---- Passive picker (challenge 9 only). The game shows Latin button texts there; this draws the real passive texts. Read-only. ----
+
+        // Size: first values for playtesting (Test Z7).
+        const float PassiveWidthShare = 0.75f;   // panel width / screen width
+        const float PassiveHeightShare = 0.25f;  // max panel height / screen height
+        const float PassiveTop = 16f;
+        const int PassiveTitleSize = 18, PassiveTextSize = 14;
+        const int PassiveTitleMin = 12, PassiveTextMin = 10;
+
+        struct PassiveOffer
+        {
+            public int Id;                   // RandomisatorPassives.id (0-based passive index)
+            public string Name, Description; // Description null when the index has no text
+            public float X;                  // transform.position.x, for left-to-right order
+        }
+
+        List<PassiveOffer> _passiveOffers = new List<PassiveOffer>();   // empty when the panel doesn't show
+        TextsLoader _texts;
+        string _textsLang;
+        List<(string Name, string Description)> _passiveTexts = new List<(string Name, string Description)>();
+
+        /// <summary>The offered passives left to right, with their real texts. Empty unless the picker is open in challenge 9.</summary>
+        List<PassiveOffer> ReadPassivePicker()
+        {
+            var list = new List<PassiveOffer>();
+            if (Challenge() != Redacted || _level == null || _level.passiveshop == null || !_level.passiveshop.activeInHierarchy) return list;
+            var pool = _level.passiveshop.GetComponent<PassivePool>();
+            if (pool == null || pool.passives == null) return list;
+            foreach (var p in pool.passives)
+            {
+                if (p == null || !p.gameObject.activeInHierarchy) continue;
+                string name, desc;
+                PassiveText(p.id, out name, out desc);
+                list.Add(new PassiveOffer { Id = p.id, Name = name, Description = desc, X = p.transform.position.x });
+            }
+            list.Sort((a, b) => a.X.CompareTo(b.X));
+            return list;
+        }
+
+        void PassiveText(int id, out string name, out string desc)
+        {
+            string lang = GamePrefs.GetString("lang");
+            if (_texts == null || lang != _textsLang)
+            {
+                var go = GameObject.Find("TextsManager");
+                _texts = go != null ? go.GetComponent<TextsLoader>() : null;
+                var asset = _texts == null ? null : lang == "rus" ? _texts.textAsset_p : _texts.textAsset_eng_p;
+                _passiveTexts = PassiveTexts.Parse(asset != null ? asset.text : null);
+                _textsLang = _texts != null ? lang : null;   // no loader yet: look again next time
+            }
+            if (id >= 0 && id < _passiveTexts.Count && !string.IsNullOrEmpty(_passiveTexts[id].Name))
+            {
+                name = _passiveTexts[id].Name;
+                desc = _passiveTexts[id].Description;
+            }
+            else
+            {
+                name = "passive " + (id + 1);
+                desc = null;
+            }
+        }
+
+        /// <summary>Top-center panel with one box per offered passive. Checks challenge 9 itself, so a stale list can't show elsewhere.</summary>
+        void DrawPassives()
+        {
+            if (Challenge() != Redacted || _passiveOffers.Count == 0) return;
+            float s = Screen.height / 1080f;
+            GUI.matrix = Matrix4x4.Scale(new Vector3(s, s, 1f));
+            float screenW = Screen.width / s;
+            float width = screenW * PassiveWidthShare, x0 = (screenW - width) / 2f, y0 = PassiveTop;
+            int n = _passiveOffers.Count;
+            const float pad = PanelPad, gap = CellGap, head = PanelHead, inner = 6f, titleGap = 4f;
+            float boxW = (width - 2 * pad - (n - 1) * gap) / n;
+            float maxH = 1080f * PassiveHeightShare;
+
+            int titleSize = PassiveTitleSize, textSize = PassiveTextSize;
+            float boxH;
+            while (true)
+            {
+                _passiveTitleStyle.fontSize = titleSize;
+                _passiveTextStyle.fontSize = textSize;
+                boxH = 0f;
+                foreach (var o in _passiveOffers)
+                {
+                    float h = inner * 2 + _passiveTitleStyle.CalcHeight(new GUIContent(o.Name), boxW - 2 * inner) + titleGap
+                        + (string.IsNullOrEmpty(o.Description) ? 0f : _passiveTextStyle.CalcHeight(new GUIContent(o.Description), boxW - 2 * inner));
+                    boxH = Mathf.Max(boxH, h);
+                }
+                if (2 * pad + head + boxH <= maxH || (titleSize <= PassiveTitleMin && textSize <= PassiveTextMin)) break;
+                titleSize = Mathf.Max(PassiveTitleMin, titleSize - 1);
+                textSize = Mathf.Max(PassiveTextMin, textSize - 1);
+            }
+            boxH = Mathf.Min(boxH, maxH - 2 * pad - head);
+            float height = 2 * pad + head + boxH;
+
+            GUI.backgroundColor = new Color(0.08f, 0.08f, 0.1f, 0.88f);
+            GUI.Box(new Rect(x0, y0, width, height), GUIContent.none, _boxStyle);
+            GUI.Label(new Rect(x0 + pad, y0 + pad, width - pad * 2, head), "Passives", _headerStyle);
+            for (int i = 0; i < n; i++)
+            {
+                var o = _passiveOffers[i];
+                float bx = x0 + pad + i * (boxW + gap), by = y0 + pad + head;
+                GUI.backgroundColor = new Color(0.2f, 0.2f, 0.26f, 0.9f);
+                GUI.Box(new Rect(bx, by, boxW, boxH), GUIContent.none, _boxStyle);
+                GUI.BeginGroup(new Rect(bx, by, boxW, boxH));   // clips what doesn't fit under the height cap
+                float th = _passiveTitleStyle.CalcHeight(new GUIContent(o.Name), boxW - 2 * inner);
+                GUI.Label(new Rect(inner, inner, boxW - 2 * inner, th), o.Name, _passiveTitleStyle);
+                if (!string.IsNullOrEmpty(o.Description))
+                    GUI.Label(new Rect(inner, inner + th + titleGap, boxW - 2 * inner, boxH), o.Description, _passiveTextStyle);
+                GUI.EndGroup();
+            }
+        }
+
+        static string PassiveNames(List<PassiveOffer> offers)
+        {
+            var names = new List<string>();
+            foreach (var o in offers) names.Add(o.Name);
+            return string.Join(", ", names.ToArray());
         }
 
         void Safe(string where, Action action)
