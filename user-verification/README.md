@@ -28,6 +28,7 @@ One file per manual in-game test. Read only the file you need. Install and remov
 | W | [operator_swap](test-w.md) (done) |
 | X | [Button labels](test-x.md) (done) |
 | Y | [CI-built mod (stub build)](test-y.md) |
+| Z | [Passive picker overlay (challenge 9)](test-z.md) (done; Z6 not run) |
 
 ## Adding a test
 
