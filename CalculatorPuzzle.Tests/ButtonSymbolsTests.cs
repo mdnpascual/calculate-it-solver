@@ -76,6 +76,7 @@ public class ButtonSymbolsTests
     [InlineData("operator_near", "+-10")]
     [InlineData("operator_complement", "AX")]
     [InlineData("operator_swap", "swap")]
+    [InlineData("operator_coinsub", "$++")]
     public void Of_spot_checks(string id, string expected) => Assert.Equal(expected, ButtonSymbols.Of(id));
 
     [Theory]

@@ -52,6 +52,14 @@ public class MainForm : Form
     bool searchPlusOne;     // boss rule 12: every = adds 1
     bool searchNear1;       // the near-one passive: lines may end at G - 1, G or G + 1
 
+    // The coinsub loop (spec/coinsub-fallback): with no line, press coinsub once more and search again from the new state.
+    int coinPresses;                         // coinsub presses before the running search (0 = the normal search)
+    CoinSubSearch.State? searchCoin;         // the state after coinPresses presses (null at 0)
+    long coinStart, coinGoal;                // S and G as typed
+    Buttons? coinButtons;                    // the buttons as typed (with coinsub and the context), for Wrap and the next press
+    bool coinSame;                           // S = G as typed: no loop
+    long searchStart, searchGoal;            // what the running search starts from and aims at
+
     // Achievements section: a flat header button that shows or hides the panel with the two radio buttons.
     readonly Button achievementsHeader = new() { Text = "▸ Achievements", AutoSize = true, FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft };
     readonly FlowLayoutPanel achievementsPanel = new() { AutoSize = true, FlowDirection = FlowDirection.TopDown, Visible = false, Margin = Padding.Empty };
@@ -76,6 +84,7 @@ public class MainForm : Form
     readonly CheckBox followBox = new() { Text = "Follow game", Checked = true, AutoSize = true };
     readonly CheckBox lockBox = new() { Text = "Lock", AutoSize = true };
     readonly CheckBox near1Box = new() { Text = "Near 1", AutoSize = true };
+    readonly CheckBox blindBox = new() { Text = "Blind", AutoSize = true };
     readonly System.Windows.Forms.Timer fileTimer = new() { Interval = 100 };
     FileSystemWatcher? watcher;
     int lastSeq = -1;
@@ -124,7 +133,7 @@ public class MainForm : Form
         };
         AddInlineRow(layout, "Start (S)", startBox, ("Goal (G)", goalBox));
         var followPanel = new FlowLayoutPanel { AutoSize = true, Margin = Padding.Empty, WrapContents = false };
-        followPanel.Controls.AddRange([followBox, lockBox, near1Box]);
+        followPanel.Controls.AddRange([followBox, lockBox, near1Box, blindBox]);
         AddRow(layout, "Game", followPanel);
         AddInlineRow(layout, "Required", requiredBox, ("Last", lastBox), ("Money", moneyBox), ("Boss", bossBox));
         AddRow(layout, "Buttons", buttonsBox);
@@ -153,6 +162,7 @@ public class MainForm : Form
         moneyBox.TextChanged += (_, _) => MarkDivisionStale();
         bossBox.TextChanged += (_, _) => MarkDivisionStale();
         near1Box.CheckedChanged += (_, _) => MarkDivisionStale();
+        blindBox.CheckedChanged += (_, _) => MarkDivisionStale();
         // The Division Shortcut search is slow, so it only runs when Enter is pressed.
         foreach (var box in new[] { startBox, goalBox, requiredBox, lastBox, moneyBox, bossBox, buttonsBox })
             box.KeyDown += (_, e) =>
@@ -298,12 +308,15 @@ public class MainForm : Form
         moneyBox.Text = puzzle.Coins?.ToString() ?? "";
         bossBox.Text = puzzle.BossRule == 0 ? "" : puzzle.BossRule.ToString();
         near1Box.Checked = puzzle.Near1;
+        blindBox.Checked = puzzle.Blind;
         StartDivisionSearch();
     }
 
-    void StartDivisionSearch()
+    void StartDivisionSearch(int coin = 0)
     {
         StopDivisionSearch(keepLines: false);
+        coinPresses = coin;
+        searchCoin = null;
 
         if (!long.TryParse(startBox.Text, out var start) || start < 0
             || !long.TryParse(goalBox.Text, out var goal) || goal < 0)
@@ -329,7 +342,7 @@ public class MainForm : Form
             buttons = buttons.TakeTwo();
         // Lines run with the goal and money the game has at each press (near, median, money read them).
         buttons = buttons.WithContext(new LineContext(goal, bossRule == GoalStepSearch.GoalPerChargeRule, money,
-            new MoneyRules(gameDiffType >= 7, bossRule == 10, gameCoinPassives)));
+            new MoneyRules(gameDiffType >= 7, bossRule == 10, gameCoinPassives), blindBox.Checked));
 
         // Required must be a button the puzzle has with charges left; otherwise the search runs without it.
         string? required = null;
@@ -365,7 +378,12 @@ public class MainForm : Form
         var queue = new ConcurrentQueue<ResultLine>();
         searchCancel = cancel;
         bool plusOne = searchPlusOne = bossRule == EngineeringCalculator.SendPlusOneRule;
-        searchSameNumber = start == goal && !plusOne;
+        searchSameNumber = coinSame = start == goal && !plusOne;
+        coinStart = start;
+        coinGoal = goal;
+        coinButtons = buttons;
+        searchStart = start;
+        searchGoal = goal;
         bool near1 = searchNear1 = near1Box.Checked;
         searchButtons = buttons;
         arithmeticCount = 0;
@@ -403,6 +421,28 @@ public class MainForm : Form
             searchTimer.Start();
             return;
         }
+        // The coinsub loop searches from the state after its presses: the direct leg only, every line gets the presses in front.
+        var origStart = start;
+        var origButtons = buttons;
+        var coinState = searchCoin = coinPresses > 0 ? CoinSubSearch.After(start, goal, coinPresses, buttons, bossRule) : null;
+        if (coinPresses > 0)
+        {
+            if (coinState == null)
+            {
+                SetStatus(NoLineStatus());
+                return;
+            }
+            if (required == CoinSubSearch.Token)
+                plan = searchPlan = RequiredPlan.For(null, searchBoss);
+            start = searchStart = coinState.Start;
+            goal = searchGoal = coinState.Goal;
+            buttons = searchButtons = coinState.Rest;
+            legs = searchLegs = [new SwapSearch.Leg(start, goal, buttons, plan, false)];
+            searchSameNumber = start == goal && !plusOne;
+        }
+        ResultLine? Coined(ResultLine line) =>
+            coinState == null ? line : CoinSubSearch.Wrap(line, coinState, origStart, origButtons, required, bossRule);
+        ResultLine? coinAlone = coinState == null ? null : CoinSubSearch.Alone(coinState, origStart, origButtons, required, bossRule);
         if (bossRule == GoalStepSearch.GoalPerChargeRule)
         {
             stepTask = Task.Run(() =>
@@ -426,8 +466,13 @@ public class MainForm : Form
                         }
                         : line =>
                         {
-                            Interlocked.Increment(ref kept);
-                            queue.Enqueue(line);
+                            if (Coined(line) is { } coined)
+                            {
+                                Interlocked.Increment(ref kept);
+                                queue.Enqueue(coined);
+                            }
+                            else
+                                onRejected();
                         };
                     var r = GoalStepSearch.Search(leg.Start, leg.Goal, leg.Buttons, leg.Plan, required, onLine, token,
                         Math.Max(1, MaxShownLines - kept), leg.Flipped ? MaxPresses - 1 : MaxPresses, onRejected,
@@ -436,14 +481,14 @@ public class MainForm : Form
                         total.Division + r.Division, total.Modulo + r.Modulo, Math.Max(total.LastStep, r.LastStep),
                         total.DivisionError ?? r.DivisionError, total.TwoOperator + r.TwoOperator);
                 }
-                if (SwapSearch.SwapAlone(start, goal, buttons, required, bossRule) is { } alone)
+                if ((coinState == null ? SwapSearch.SwapAlone(start, goal, buttons, required, bossRule) : coinAlone) is { } alone)
                 {
                     queue.Enqueue(alone);
                     total = total is { } t0 ? t0 with { Arithmetic = t0.Arithmetic + 1 } : new GoalStepSearch.Result(1, 0, 0, 0, null);
                 }
                 return total ?? new GoalStepSearch.Result(0, 0, 0, 0, null);
             }, token);
-            SetStatus("Searching… 0 line(s) so far. Esc to stop.");
+            SetStatus(SearchingStatus());
             searchTimer.Start();
             return;
         }
@@ -459,7 +504,7 @@ public class MainForm : Form
             {
                 if (leg.Flipped)
                     return SwapSearch.Wrap(r, start, buttons, required);
-                return t != goal ? r with { Reaches = t } : r;
+                return Coined(t != goal ? r with { Reaches = t } : r);
             }
             // The cap a leg searches with, and the new shared cap after one of its lines.
             int divisionCap = MaxPresses;
@@ -474,7 +519,7 @@ public class MainForm : Form
             IEnumerable<long> TargetsOf(SwapSearch.Leg leg) =>
                 searchSameNumber ? [] : leg.Flipped ? [leg.Goal] : NearGoals.Targets(goal, near1, plusOne);
 
-            if (SwapSearch.SwapAlone(start, goal, buttons, required, bossRule) is { } alone)
+            if ((coinState == null ? SwapSearch.SwapAlone(start, goal, buttons, required, bossRule) : coinAlone) is { } alone)
                 Kept(alone);
             foreach (var leg in legs)
             {
@@ -521,8 +566,32 @@ public class MainForm : Form
             }
             return divisionRan ? divisionError : null;
         }, token);
-        SetStatus("Searching… 0 line(s) so far. Esc to stop.");
+        SetStatus(SearchingStatus());
         searchTimer.Start();
+    }
+
+    /// <summary>The status while a search runs; during the coinsub loop it names the presses instead of the line count.</summary>
+    string SearchingStatus() => coinPresses > 0
+        ? $"Searching… $++ ({coinPresses} press). Esc to stop."
+        : $"Searching… {found.Count} line(s) so far. Esc to stop.";
+
+    /// <summary>
+    /// After a search that found no line: press coinsub once more and search again from the new state. False (and nothing started) when
+    /// coinsub has no charge left, the coins left don't pay the next press ($1, or $2 in boss rule 10), the press would add nothing,
+    /// an achievement mode is on, or S = G.
+    /// </summary>
+    bool TryNextCoinPress()
+    {
+        if (found.Count > 0 || searchAchievement != AchievementMode.None || coinSame || coinButtons == null
+            || coinButtons.Charges.GetValueOrDefault(CoinSubSearch.Token) <= coinPresses)
+            return false;
+        var now = CoinSubSearch.After(coinStart, coinGoal, coinPresses, coinButtons, searchBossRule);
+        if (now?.Rest.Context is not { } context
+            || context.Money < CoinSubSearch.Needed(context.MoneyRules, context.ChargedBefore)
+            || CoinSubSearch.After(coinStart, coinGoal, coinPresses + 1, coinButtons, searchBossRule) == null)
+            return false;
+        StartDivisionSearch(coinPresses + 1);
+        return true;
     }
 
     void OnSearchTick()
@@ -554,7 +623,7 @@ public class MainForm : Form
         Drain();
         if (!done)
         {
-            SetStatus($"Searching… {found.Count} line(s) so far. Esc to stop.");
+            SetStatus(SearchingStatus());
             return;
         }
 
@@ -568,6 +637,8 @@ public class MainForm : Form
         if (exception != null || searchSameNumber || !searchPlan.Modulo || searchButtons == null || searchCancel == null)
         {
             FinishSearch();
+            if (exception == null && TryNextCoinPress())
+                return;
             if (exception != null)
                 SetStatus(exception);
             else if (found.Count == 0 && !searchSameNumber && !searchBoss)
@@ -584,11 +655,11 @@ public class MainForm : Form
         int cap = counted.Count > 0 ? Math.Min(MaxPresses, counted.Min(l => l.Cost) + CostSlack) : MaxPresses;
         var buttons = searchButtons;
         var token = searchCancel.Token;
-        if (!long.TryParse(startBox.Text, out var start) || !long.TryParse(goalBox.Text, out var goal))
-        {
-            FinishSearch();
-            return;
-        }
+        long start = searchStart, goal = searchGoal;
+        var coin = searchCoin;
+        long origStart = coinStart;
+        var origButtons = coinButtons!;
+        int bossRule = searchBossRule;
         bool plusOne = searchPlusOne, near1 = searchNear1;
         var plan = searchPlan;
         var required = searchRequired;
@@ -617,13 +688,19 @@ public class MainForm : Form
                                 lines.Add(wrapped);
                         }
                         else
-                            lines.Add(t != goal ? rl with { Reaches = t } : rl);
+                        {
+                            var direct = t != goal ? rl with { Reaches = t } : rl;
+                            if (coin == null)
+                                lines.Add(direct);
+                            else if (CoinSubSearch.Wrap(direct, coin, origStart, origButtons, required, bossRule) is { } coined)
+                                lines.Add(coined);
+                        }
                     }
                 }
             }
             return (error, lines);
         });
-        SetStatus($"Modulo Shortcut… {arithmeticCount + twoOperatorCount + divisionCount} line(s). Esc to stop.");
+        SetStatus(coinPresses > 0 ? SearchingStatus() : $"Modulo Shortcut… {arithmeticCount + twoOperatorCount + divisionCount} line(s). Esc to stop.");
     }
 
     void OnAchievementTick()
@@ -666,7 +743,7 @@ public class MainForm : Form
         Drain();
         if (!done)
         {
-            SetStatus($"Searching… {found.Count} line(s) so far. Esc to stop.");
+            SetStatus(SearchingStatus());
             return;
         }
         stepTask = null;
@@ -684,6 +761,8 @@ public class MainForm : Form
         twoOperatorCount = r.TwoOperator;
         divisionCount = r.Division;
         moduloCount = r.Modulo;
+        if (TryNextCoinPress())
+            return;
         if (found.Count == 0)
             SetStatus(NoLineStatus());
         else
@@ -703,6 +782,8 @@ public class MainForm : Form
             Redraw();
         }
         FinishSearch();
+        if (task.IsCompletedSuccessfully && TryNextCoinPress())
+            return;
         if (found.Count == 0 && !searchSameNumber && !searchBoss)
             SetStatus(NoLineStatus());
         else

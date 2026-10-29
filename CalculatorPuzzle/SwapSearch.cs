@@ -28,17 +28,18 @@ public static class SwapSearch
         return legs;
     }
 
-    /// <summary>F: the display after the swap. G, + 1 in rule 12 (Send), + 1 in rule 14 unless swap is glass (SubUse runs first).</summary>
+    /// <summary>F: the display after the swap. G, + 1 in rule 12 (Send), + 1 in rule 14 unless swap is glass or the blind passive's free press (SubUse runs first).</summary>
     public static long FlippedStart(long goal, Buttons buttons, int bossRule) =>
         goal + (bossRule == EngineeringCalculator.SendPlusOneRule ? 1 : 0)
-             + (bossRule == GoalStepSearch.GoalPerChargeRule && !buttons.Glass.Contains(Token) ? 1 : 0);
+             + (bossRule == GoalStepSearch.GoalPerChargeRule && !buttons.Glass.Contains(Token) && buttons.Context?.Blind != true ? 1 : 0);
 
-    /// <summary>The buttons the flipped leg runs with: no swap, and the goal the game shows after the swap (S) for near, median and the context.</summary>
+    /// <summary>The buttons the flipped leg runs with: no swap, and the goal the game shows after the swap (S) for near, median and the context.
+    /// A non-glass swap used the blind passive's free press, so the flipped leg runs without it.</summary>
     public static Buttons Flip(Buttons buttons, long newGoal)
     {
         var flipped = buttons.Without(Token);
         if (flipped.Context is { } context)
-            flipped = flipped.WithContext(context with { Goal = newGoal });
+            flipped = flipped.WithContext(context with { Goal = newGoal, Blind = context.Blind && buttons.Glass.Contains(Token) });
         return flipped.WithGoal(newGoal);
     }
 
@@ -51,7 +52,7 @@ public static class SwapSearch
         long first = FlippedStart(goal, buttons, bossRule);
         var rest = presses.Skip(1).ToList();
         var flipped = Flip(buttons, start);
-        long target = start + (bossRule == GoalStepSearch.GoalPerChargeRule ? GoalStepSearch.Charged(rest, flipped) : 0);
+        long target = start + (bossRule == GoalStepSearch.GoalPerChargeRule ? GoalStepSearch.Raises(rest, flipped) : 0);
         // The swap itself sent already, so a bare swap wins when the display equals the new goal.
         if (rest.Count == 0)
             return first == target;

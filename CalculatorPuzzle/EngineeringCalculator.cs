@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace CalculatorPuzzle;
 
 public enum Key { Prepend, Append, Ten, Digit, Charge, Quest, Reset, Flip, Transform, Divide, Mod, Add, Subtract, Multiply,
-                  Percent, RemorphA, RemorphB, AllDigits, Complement, Memory, Swap, Equals }
+                  Percent, RemorphA, RemorphB, AllDigits, Complement, Memory, Swap, CoinSub, Equals }
 
 /// <summary>One button press. Digit is used by Prepend, Append, Digit and Quest; for Charge and Memory it is the value typed (it can be 10 or more).</summary>
 public record Press(Key Key, int Digit = -1, LeftTransform? Transform = null)
@@ -33,6 +33,7 @@ public record Press(Key Key, int Digit = -1, LeftTransform? Transform = null)
         Key.Complement => "AX",
         Key.Memory => $"m{Digit}",
         Key.Swap => "swap",
+        Key.CoinSub => CoinSubSearch.Token,
         _ => "=",
     };
 
@@ -68,6 +69,10 @@ public record Buttons(IReadOnlySet<int> PrependDigits, IReadOnlySet<int> AppendD
     /// <summary>A copy with this button's charges set to 0 (the swap search solves the flipped leg without `swap`).</summary>
     public Buttons Without(string token) =>
         Copy(Charges.ToDictionary(c => c.Key, c => c.Key == token ? 0 : c.Value));
+
+    /// <summary>A copy with the money transform bound to another amount (the coinsub loop searches on with the coins left).</summary>
+    public Buttons WithMoney(long money) =>
+        Copy(transforms: Transforms.Select(t => t.Reads == Reads.Money ? t.Bind!(money) : t).ToList());
 
     /// <summary>A copy that runs lines in this context.</summary>
     public Buttons WithContext(LineContext? context) => Copy() with { Context = context };
@@ -124,6 +129,7 @@ public record Buttons(IReadOnlySet<int> PrependDigits, IReadOnlySet<int> AppendD
         Key.RemorphB => RemorphB,
         Key.AllDigits => AllDigits,
         Key.Complement => Complement,
+        Key.CoinSub => Charges.GetValueOrDefault(CoinSubSearch.Token) > 0,
         _ => false,
     };
 
@@ -254,7 +260,7 @@ public record Buttons(IReadOnlySet<int> PrependDigits, IReadOnlySet<int> AppendD
             else if (token == "b->c") remorphB = true;
             else if (token == "==") allDigits = true;
             else if (token == "ax") complement = true;
-            else if (token == SwapSearch.Token) { }
+            else if (token == SwapSearch.Token || token == CoinSubSearch.Token) { }
             else if (token is "near" or "median" or "money")
             {
                 if (BoundTransform(token, goal, money) is { } bound && !transforms.Contains(bound))
@@ -379,8 +385,11 @@ public record Buttons(IReadOnlySet<int> PrependDigits, IReadOnlySet<int> AppendD
     };
 }
 
-/// <summary>The game state a line runs in, for buttons that read it: the goal (near, median; plus the charged presses so far in boss rule 14) and the money.</summary>
-public sealed record LineContext(long Goal, bool GoalStep = false, long Money = 0, MoneyRules? MoneyRules = null);
+/// <summary>The game state a line runs in, for buttons that read it: the goal (near, median; plus the charged presses so far in boss rule 14) and the money.
+/// Blind: the round's first non-glass press is free (passive_blind): no goal raise, no rule-10 coin.
+/// ChargedBefore: charged presses already made this round (the coinsub loop), for the diff_type &gt;= 7 drain.</summary>
+public sealed record LineContext(long Goal, bool GoalStep = false, long Money = 0, MoneyRules? MoneyRules = null, bool Blind = false,
+                                 int ChargedBefore = 0);
 
 /// <summary>How money changes during a line. DrainFromThird: diff_type &gt;= 7. Rule10: boss rule 10. Passives: the coin passives present.</summary>
 public sealed record MoneyRules(bool DrainFromThird, bool Rule10, IReadOnlyCollection<string> Passives);
@@ -452,8 +461,19 @@ public static class EngineeringCalculator
         return plusOne && !endsWithEquals ? shown + 1 : shown;
     }
 
-    /// <summary>With plusOne (boss rule 12) each = adds 1 to its result, and a bare = is allowed as the last press.</summary>
+    /// <summary>What a run leaves behind besides the log: the money, the goal raises (boss rule 14), the charged presses and whether the blind press is still free.</summary>
+    internal sealed class RunEnd
+    {
+        public long Money;
+        public int GoalRaises, Charged;
+        public bool BlindLeft;
+    }
+
+    /// <summary>With plusOne (boss rule 12) each = adds 1 to its result, and a bare = is allowed as the last press. `end` is filled when the run succeeds.</summary>
     public static IReadOnlyList<string>? Run(long start, IReadOnlyList<Press> presses, Buttons? buttons = null, bool plusOne = false)
+        => Run(start, presses, buttons, plusOne, null);
+
+    internal static IReadOnlyList<string>? Run(long start, IReadOnlyList<Press> presses, Buttons? buttons, bool plusOne, RunEnd? end)
     {
         var display = start.ToString();
         var operand = "";
@@ -464,7 +484,8 @@ public static class EngineeringCalculator
         bool questUsed = false;
         var context = buttons?.Context;
         long money = context?.Money ?? 0;
-        int charged = 0, goalRaises = 0;
+        int charged = context?.ChargedBefore ?? 0, goalRaises = 0;
+        bool freeLeft = context?.Blind == true;
 
         // The text a right-side key types, or null when the key is not allowed here. Charge and quest
         // presses are counted when they are typed.
@@ -498,13 +519,18 @@ public static class EngineeringCalculator
             {
                 // The game's SubUse runs before a button's effect: every press but = is charged (glass too), and a glass press doesn't raise the goal.
                 charged++;
-                if (buttons == null || !buttons.Glass.Contains(press.ChargeKey))
+                bool glass = buttons != null && buttons.Glass.Contains(press.ChargeKey);
+                // The blind passive's free press skips the charge branch (goal raise, rule-10 coin); the diff_type >= 7 drain still runs.
+                bool free = !glass && freeLeft;
+                if (free)
+                    freeLeft = false;
+                else if (!glass)
                     goalRaises++;
                 if (context?.MoneyRules is { } rules)
                 {
                     if (rules.DrainFromThird && charged >= 3 && money > 0)
                         money--;
-                    if (rules.Rule10 && money > 0)
+                    if (rules.Rule10 && !free && money > 0)
                         money--;
                 }
             }
@@ -596,11 +622,28 @@ public static class EngineeringCalculator
                     display = (shown + 1).ToString();
                     log.Add(display);
                     break;
+                case Key.CoinSub when op == null && (buttons == null || buttons.Has(Key.CoinSub)):
+                    // MainCalc.UseCoins(-1): with coins left after SubUse's drains on this press (rule 10 takes one first) the display rises
+                    // by 1 (PlusNumber reads the number); without them nothing happens.
+                    if (money > 0)
+                    {
+                        money--;
+                        display = Math.Min(long.Parse(display) + 1, Max).ToString();
+                    }
+                    log.Add(display);
+                    break;
                 default:
                     return null;
             }
         }
 
+        if (end != null)
+        {
+            end.Money = money;
+            end.GoalRaises = goalRaises;
+            end.Charged = charged;
+            end.BlindLeft = freeLeft;
+        }
         return log;
     }
 

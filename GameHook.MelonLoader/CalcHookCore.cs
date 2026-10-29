@@ -32,6 +32,7 @@ namespace CalcHook
         string _fingerprint;
         int _warps;  // warp-button presses in this round
         bool _publishedNear1;  // passive_near1 as of the last publish
+        bool _publishedBlindOwned;  // passive_blind as of the last publish (not the flag: it drops on the round's first press)
         float _stableSince;
         int _seq;
 
@@ -126,7 +127,9 @@ namespace CalcHook
             bool goalMoves = _level.IsBossRound && _level.rule == GoalPerChargeRule;
             // The passive can be picked after the puzzle was published (the perk picker); publish again, like a warp.
             bool near1 = Near1();
-            if (!_hasPublished || round != _publishedRound || (!goalMoves && goal != _publishedGoal) || near1 != _publishedNear1)
+            bool blindOwned = BlindOwned();
+            if (!_hasPublished || round != _publishedRound || (!goalMoves && goal != _publishedGoal) || near1 != _publishedNear1
+                || blindOwned != _publishedBlindOwned)
             {
                 if (!_pending) { _pending = true; _fingerprint = null; }
             }
@@ -152,6 +155,7 @@ namespace CalcHook
             string required = RequiredKey(buttons, out kind);
             fp.Append("|req:").Append(required ?? "-").Append(':').Append(kind ?? "-");
             fp.Append("|near1:").Append(near1 ? '1' : '0');
+            fp.Append("|blind:").Append(blindOwned ? '1' : '0');
             string now = fp.ToString();
             float t = Time.realtimeSinceStartup;
             if (now != _fingerprint)
@@ -166,6 +170,7 @@ namespace CalcHook
             _publishedRound = round;
             _publishedGoal = goal;
             _publishedNear1 = near1;
+            _publishedBlindOwned = blindOwned;
             _pending = false;
             _seq++;
             WritePuzzle(round, left, goal, buttons, required, kind);
@@ -173,11 +178,23 @@ namespace CalcHook
                 + ", coins=" + _level.coins
                 + (_warps > 0 ? ", warp " + _warps : "")
                 + (near1 ? ", near1" : "")
+                + (Blind() ? ", blind" : "")
                 + (required != null ? ", required " + required + (kind == "boss" ? " (boss)" : "") : ""));
         }
 
         /// <summary>The near-one passive is owned: its prefab instance is a GameObject named passive_near1 (the game's own test).</summary>
         static bool Near1() => UnityEngine.GameObject.Find("passive_near1") != null;
+
+        /// <summary>The blind passive is owned (GameObject passive_blind, the game's own test).</summary>
+        static bool BlindOwned() => UnityEngine.GameObject.Find("passive_blind") != null;
+
+        /// <summary>The blind flag (GamePrefs "blind" = 1): the round's next normal press is free. It drops to 0 on that press.</summary>
+        static bool Blind()
+        {
+            // GamePrefs may not be ready yet (menu); that counts as no free press.
+            try { return GamePrefs.GetInt("blind") == 1; }
+            catch (System.Exception) { return false; }
+        }
 
         // The coin passives that pay out on an = (MainCalc.Send); the game tests each with GameObject.Find.
         static readonly string[] CoinPassiveNames = { "passive777", "passive_lucky", "passive_perfect", "passive_odd" };
@@ -225,6 +242,7 @@ namespace CalcHook
                 sb.Append("  \"last\": ").Append(_level.last).Append(",\n");
                 sb.Append("  \"warp\": ").Append(_warps).Append(",\n");
                 sb.Append("  \"near1\": ").Append(Near1() ? "true" : "false").Append(",\n");
+                sb.Append("  \"blind\": ").Append(Blind() ? "true" : "false").Append(",\n");
                 sb.Append("  \"coins\": ").Append(_level.coins).Append(",\n");
                 sb.Append("  \"diffType\": ").Append(DiffType()).Append(",\n");
                 sb.Append("  \"coinPassives\": ").Append(CoinPassivesJson()).Append(",\n");
@@ -490,6 +508,7 @@ namespace CalcHook
                 sb.Append("  \"last\": ").Append(_level.last).Append(",\n");
                 sb.Append("  \"warp\": ").Append(_warps).Append(",\n");
                 sb.Append("  \"near1\": ").Append(Near1() ? "true" : "false").Append(",\n");
+                sb.Append("  \"blind\": ").Append(Blind() ? "true" : "false").Append(",\n");
                 sb.Append("  \"coins\": ").Append(_level.coins).Append(",\n");
                 sb.Append("  \"diffType\": ").Append(DiffType()).Append(",\n");
                 sb.Append("  \"coinPassives\": ").Append(CoinPassivesJson()).Append(",\n");

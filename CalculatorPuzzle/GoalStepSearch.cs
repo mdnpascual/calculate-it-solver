@@ -1,7 +1,8 @@
 namespace CalculatorPuzzle;
 
 /// <summary>
-/// Boss rule 14: each charged press raises the goal by 1, so a line with k charged presses must end at goal + k.
+/// Boss rule 14: each charged press raises the goal by 1, so a line with k charged presses must end at goal + k
+/// (goal + k − 1 with the blind passive: its free press doesn't raise it).
 /// Tries k = 1, 2, … and keeps only lines with exactly k charged presses. Each k searches with near and median bound to goal + k
     /// (<see cref="Buttons.WithGoal"/>); the simulator checks every line with the goal at each press (goal + the charged presses so far).
 /// </summary>
@@ -15,6 +16,13 @@ public static class GoalStepSearch
     /// <summary>Presses that spend a charge: every press except = and presses of a glass button.</summary>
     public static int Charged(IReadOnlyList<Press> presses, Buttons buttons) =>
         presses.Count(p => p.Key != Key.Equals && !buttons.Glass.Contains(p.ChargeKey));
+
+    /// <summary>How much the goal rises over a line: its charged presses, less the free one with the blind passive.</summary>
+    public static int Raises(IReadOnlyList<Press> presses, Buttons buttons)
+    {
+        int k = Charged(presses, buttons);
+        return buttons.Context?.Blind == true && k > 0 ? k - 1 : k;
+    }
 
     /// <summary>
     /// Searches k = 1..maxSteps and stops after the k where at least `wanted` lines are kept. Throws
@@ -30,13 +38,14 @@ public static class GoalStepSearch
         bool divisionOn = plan.Division, moduloOn = plan.Modulo;
 
         var baseButtons = buttons;
+        int free = baseButtons.Context?.Blind == true ? 1 : 0;
         for (int k = 1; k <= maxSteps; k++)
         {
             cancel.ThrowIfCancellationRequested();
             lastStep = k;
-            buttons = baseButtons.WithGoal(goal + k);
+            buttons = baseButtons.WithGoal(goal + k - free);
             // With the near-one passive a line may end at G + k − 1, G + k or G + k + 1.
-            foreach (long target in NearGoals.Targets(goal + k, near1, plusOne: false))
+            foreach (long target in NearGoals.Targets(goal + k - free, near1, plusOne: false))
             {
                 if (target == start)
                     continue;

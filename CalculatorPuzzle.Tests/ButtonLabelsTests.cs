@@ -20,6 +20,7 @@ public class ButtonLabelsTests
     [InlineData("near", "+-10")]
     [InlineData("reset", "x->0")]
     [InlineData("to25", "x->25")]
+    [InlineData("coinsub", "$++")]
     [InlineData("c", "volt")]
     [InlineData("c12", "volt12")]
     [InlineData("q", "unk")]
@@ -39,7 +40,7 @@ public class ButtonLabelsTests
             "operator_/2", "operator_sqr", "operator_sqrt", "operator_100-x", "operator_reverse", "operator_flip", "operator_<",
             "operator_>", "operator_swap", "operator_last", "operator_round", "operator_near", "operator_complement",
             "operator_mediana", "operator_prime", "operator_sup", "operator_to0", "operator_to25", "operator_remorph_a",
-            "operator_remorph_b", "operator_money", "operator_equal",
+            "operator_remorph_b", "operator_money", "operator_equal", "operator_coinsub",
         }).ToArray();
 
     [Fact]

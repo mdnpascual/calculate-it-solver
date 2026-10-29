@@ -21,6 +21,7 @@ public class GameLinkTests
     [InlineData("operator_sup", "sup")]
     [InlineData("operator_money", "money")]
     [InlineData("operator_equal", "==")]
+    [InlineData("operator_coinsub", "coinsub")]
     [InlineData("operator_complement", "AX")]
     [InlineData("number_mw", "m")]
     [InlineData("number11", null)]

@@ -101,7 +101,7 @@ The label is what the solver app and the overlay show ([`spec/button-labels/`](.
 | `operator_money` | Label `$`. adds current amount of money to the current number. Solver token `money`: only on a display of fewer than 5 characters (on 5 or 6 nothing happens, but the charge is used); the amount is the money after its own press paid. Money also moves during a line (difficulty 7+ from the third charged press, boss rule 10, coin passives on `=`); the simulator models it. Left side only. |
 | `operator_credit` |  |
 | `operator_coinadd` |  |
-| `operator_coinsub` |  |
+| `operator_coinsub` | Label `$++` (the face is likely an icon; scene text child `11`). `CountUses.SubUse`, then `MainCalc.UseCoins(-1)`: only with coins left, -1 coin and `PlusNumber(1)` (the `X++` code: +1, clamp 999 999). At 0 coins nothing happens but the charge is used. Boss rule 10: `SubUse` takes a coin first, so a press costs $2 (with $1 it takes it and does nothing). Left side only. Solver token `coinsub`: a fallback loop when no line is found, see `spec/coinsub-fallback/`. |
 | `operator_send` |  |
 | `operator_warp` | d20: re-rolls every button (`StartLvl.D20`, wired in the scene `onClick` after `SubUse`). Unmapped. The mod publishes the new button set again after it (`warp` in `puzzle.json`). See `spec/warp-rescan/`. |
 | `operator_secret` |  |

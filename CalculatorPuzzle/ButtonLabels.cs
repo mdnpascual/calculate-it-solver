@@ -12,7 +12,7 @@ public static class ButtonLabels
     {
         ["money"] = "$", ["flip"] = "reverse", ["round"] = "->)", ["sup"] = "combine",
         ["sqr"] = "X²", ["median"] = "_2_", ["25|69"] = "mirror", ["=="] = "equalize",
-        ["<<"] = "X<<", [">>"] = "X>>", ["near"] = "+-10", ["reset"] = "x->0", ["to25"] = "x->25",
+        ["<<"] = "X<<", [">>"] = "X>>", ["near"] = "+-10", ["reset"] = "x->0", ["to25"] = "x->25", ["coinsub"] = "$++",
     };
 
     // Lowercase label -> token.
@@ -48,7 +48,25 @@ public static class ButtonLabels
         return text;
     }
 
-    /// <summary>Presses joined by " | ", each as its label, with ÷ shown as /.</summary>
-    public static string Line(IEnumerable<string> presses) =>
-        string.Join(" | ", presses.Select(p => Label(p))).Replace('÷', '/');
+    /// <summary>Presses joined by " | ", each as its label, with ÷ shown as /. A run of coinsub presses is one item, "$++ (n press)".</summary>
+    public static string Line(IEnumerable<string> presses)
+    {
+        var items = new List<string>();
+        int coin = 0;
+        foreach (var press in presses)
+        {
+            if (press == "coinsub")
+            {
+                coin++;
+                continue;
+            }
+            if (coin > 0)
+                items.Add($"{Label("coinsub")} ({coin} press)");
+            coin = 0;
+            items.Add(Label(press));
+        }
+        if (coin > 0)
+            items.Add($"{Label("coinsub")} ({coin} press)");
+        return string.Join(" | ", items).Replace('÷', '/');
+    }
 }

@@ -12,6 +12,7 @@ namespace CalculatorPuzzle;
 /// Last is the previous round's goal (<c>StartLvl.last</c>), or null when the mod didn't publish it.
 /// Warp is the number of warp-button re-rolls in this round (0 from an older mod).
 /// Near1 is true when the player owns the near-one passive (a send within 1 of the goal wins); false from an older mod.
+/// Blind is true when the next normal press is free (<c>GamePrefs</c> <c>blind</c> = 1, passive_blind); false from an older mod.
 /// Coins is the player's money (<c>StartLvl.coins</c>), DiffType the difficulty (<c>diff_type</c>) and CoinPassives the coin passives present
 /// (passive777, passive_lucky, passive_perfect, passive_odd); null / 0 / null from an older mod.
 /// </summary>
@@ -19,7 +20,7 @@ public sealed record GamePuzzle(int Seq, string Time, int Round, long Start, lon
                                 string ButtonsText, IReadOnlyList<string> Ignored, IReadOnlyList<string> Glass,
                                 string? Required = null, long? Last = null, string? RequiredKind = null, int BossRule = 0,
                                 IReadOnlyList<string>? Blocked = null, int Warp = 0, bool Near1 = false,
-                                long? Coins = null, int DiffType = 0, IReadOnlyList<string>? CoinPassives = null)
+                                long? Coins = null, int DiffType = 0, IReadOnlyList<string>? CoinPassives = null, bool Blind = false)
 {
     /// <summary>How money changes during a line in this round (the difficulty drain, boss rule 10 and the coin passives).</summary>
     public MoneyRules MoneyRules => new(DiffType >= 7, BossRule == 10, CoinPassives ?? []);
@@ -52,6 +53,7 @@ public static class GameLink
             "operator*" => "×",
             "operator_mod" => "mod",
             "operator_swap" => "swap",
+            "operator_coinsub" => "coinsub",
             "operator_reverse" => "flip",
             "operator_to0" => "reset",
             "operator_++" => "X++",
@@ -171,7 +173,8 @@ public static class GameLink
                 root.TryGetProperty("coins", out var coins) && coins.ValueKind == JsonValueKind.Number ? coins.GetInt64() : null,
                 root.TryGetProperty("diffType", out var diff) && diff.ValueKind == JsonValueKind.Number && diff.TryGetInt32(out var diffType) ? diffType : 0,
                 root.TryGetProperty("coinPassives", out var passives) && passives.ValueKind == JsonValueKind.Array
-                    ? passives.EnumerateArray().Where(p => p.ValueKind == JsonValueKind.String).Select(p => p.GetString()!).ToList() : null);
+                    ? passives.EnumerateArray().Where(p => p.ValueKind == JsonValueKind.String).Select(p => p.GetString()!).ToList() : null,
+                root.TryGetProperty("blind", out var blind) && blind.ValueKind == JsonValueKind.True);
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {

@@ -13,7 +13,7 @@ namespace CalcHook
         {
             ["money"] = "$", ["flip"] = "reverse", ["round"] = "->)", ["sup"] = "combine",
             ["sqr"] = "X²", ["median"] = "_2_", ["25|69"] = "mirror", ["=="] = "equalize",
-            ["<<"] = "X<<", [">>"] = "X>>", ["near"] = "+-10", ["reset"] = "x->0", ["to25"] = "x->25",
+            ["<<"] = "X<<", [">>"] = "X>>", ["near"] = "+-10", ["reset"] = "x->0", ["to25"] = "x->25", ["coinsub"] = "$++",
         };
 
         /// <summary>Mirrors ButtonLabels.Label (CalculatorPuzzle/ButtonLabels.cs). ButtonSymbolsTests keeps them equal.</summary>
@@ -132,6 +132,7 @@ namespace CalcHook
                 case "operator*": return "×";
                 case "operator_mod": return "mod";
                 case "operator_swap": return "swap";
+                case "operator_coinsub": return "coinsub";
                 case "operator_reverse": return "flip";
                 case "operator_to0": return "reset";
                 case "operator_++": return "X++";
