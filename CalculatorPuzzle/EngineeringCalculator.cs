@@ -154,10 +154,16 @@ public record Buttons(IReadOnlySet<int> PrependDigits, IReadOnlySet<int> AppendD
         presses.Where(p => p.Key != Key.Equals).Select(p => p.ChargeKey).Distinct()
                .Sum(token => Charges.GetValueOrDefault(token));
 
-    /// <summary>Distinct buttons pressed as often as their charges (left at 0). Buttons without a charge entry never count.</summary>
-    public int Drained(IReadOnlyList<Press> presses) =>
-        presses.Where(p => p.Key != Key.Equals).GroupBy(p => p.ChargeKey)
-               .Count(g => Charges.TryGetValue(g.Key, out var n) && g.Count() >= n);
+    /// <summary>Distinct buttons pressed as often as their charges (left at 0). Buttons without a charge entry never count.
+    /// With the blind passive (Context.Blind) the line's first non-glass press uses no charge.</summary>
+    public int Drained(IReadOnlyList<Press> presses)
+    {
+        string? free = Context?.Blind == true
+            ? presses.FirstOrDefault(p => p.Key != Key.Equals && !Glass.Contains(p.ChargeKey))?.ChargeKey
+            : null;
+        return presses.Where(p => p.Key != Key.Equals).GroupBy(p => p.ChargeKey)
+                      .Count(g => Charges.TryGetValue(g.Key, out var n) && g.Count() - (g.Key == free ? 1 : 0) >= n);
+    }
 
     /// <summary>The canonical token for one button ("/" → "÷", "x1" → "X1"), or null when it isn't a button.</summary>
     public static string? Token(string text)

@@ -31,6 +31,7 @@ One file per manual in-game test. Read only the file you need. Install and remov
 | Z | [Passive picker overlay (challenge 9)](test-z.md) (done; Z6 not run) |
 | AA | [coinsub (`$++`) fallback](test-aa.md) (AA1, AA3, AA4, AA6 done; rule 11 with `$++` required gave `$++ (1 press)`, `×`, `0`, `=`, `5X` for S 76, G 50 (not yet played); AA2: the loop ran to the end of the money and found no line, which is correct (the only line ended at G-2, outside Near 1); a played `$++ (n press)` line is still open; AA5 not run) |
 | AB | [Blind passive in boss rule 14](test-ab.md) (AB1-AB5 all done; AB3: S 85, G 9, `mirror`, `combine` won; AB4: S 19, G 44, glass `X>>` first, solved) |
+| AC | [Blind passive and the empty count](test-ac.md) (AC1-AC3 all done) |
 
 ## Adding a test
 
