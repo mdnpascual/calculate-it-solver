@@ -3,6 +3,9 @@
 [![Solver](https://github.com/mdnpascual/calculate-it-solver/actions/workflows/solver.yml/badge.svg)](https://github.com/mdnpascual/calculate-it-solver/actions/workflows/solver.yml)
 [![Mod](https://github.com/mdnpascual/calculate-it-solver/actions/workflows/mod.yml/badge.svg)](https://github.com/mdnpascual/calculate-it-solver/actions/workflows/mod.yml)
 
+Solver and Mod in action in youtube: https://youtu.be/QOtbp-o_zS4
+[![Solver and Mod](https://i.ytimg.com/vi/QOtbp-o_zS4/maxresdefault.jpg)](http://www.youtube.com/watch?v=QOtbp-o_zS4 "Solver and Mod in youtube")
+
 Solves the "broken calculator" puzzles in the game **Calculate It**: reach a goal number from a starting number with a limited, unusual set of buttons (prepend and append digits, `flip`, `÷`, `mod`, `+`, `-`, `×`, a `10` key, and so on), and with as few presses as possible. The solver also supports some boss requirements and passive skills, and it takes each key's status and charge count into account.
 
 The repo has two parts:
@@ -19,32 +22,6 @@ I built this project with two goals:
 1. **Try REA as a fast way to build a game mod.** [REA](https://github.com/morluto/rea) is a reverse-engineering toolkit that Claude Code uses as an MCP server, through the `reverse-engineer-anything` skill. With it, I inspected the game by decompiling its code to find the values the mod needs to read. Each finding was then checked in the running game against the screen (see [`user-verification/`](user-verification/)), so the mod reads what the game really does, not guesses.
 
 2. **Steer Claude Code with spec-driven development and many tests.** Every feature started as a spec in [`spec/`](spec/): requirements first, then a design, then a self-contained prompt for the next session. Claude worked from these files instead of from memory, so each session followed the same rules and code patterns.
-
-## Features
-
-### Boss rush
-
-// TODO: Add video here of the boss-rush montage
-
-The solver handles many boss requirements, such as a required button, double charge cost, blocked buttons and a goal that rises with each press.
-
-### Crazy calculator
-
-// TODO: Add video here of the crazy calculator with warp
-
-The solver adapts to any button set: after each warp re-rolls the buttons, it finds a new line right away.
-
-### Restoring hidden UI with the overlay
-
-// TODO: Add video here of the overlay restoring hidden button labels and the broken screen
-
-When a boss hides button labels (rule 5) or breaks the screen (rule 8), the mod's overlay brings back what the game hides, and the solver still gives a line.
-
-### Redacted Challenge
-
-// TODO: Add video here of the Redacted Challenge with the shop open
-
-In the Redacted Challenge every label is hidden, and the overlay shows both the calculator and the shop offers, with prices, glass and charge totals.
 
 ## Requirements
 
@@ -91,6 +68,6 @@ The first line builds the solver and its tests, the second the mod. Outputs:
 dotnet test -c Release
 ```
 
-- **486 automated tests** (xUnit, in `CalculatorPuzzle.Tests/`) cover the solver, the press simulator and the search.
-- **34 feature specs** in [`spec/`](spec/), each with requirements, a design and a next prompt.
-- **23 manual in-game tests** in [`user-verification/`](user-verification/) check the mod against the running game.
+- **835 automated tests** (xUnit, in `CalculatorPuzzle.Tests/`) cover the solver, the press simulator and the search.
+- **38 feature specs** in [`spec/`](spec/), each with requirements, a design and a next prompt.
+- **28 manual in-game tests** in [`user-verification/`](user-verification/) check the mod against the running game.
